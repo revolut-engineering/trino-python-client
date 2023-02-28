@@ -48,8 +48,8 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone, tzinfo
 from decimal import Decimal
 from time import sleep
-from typing import Any, Dict, Generic, List, Optional, Tuple, TypeVar, Union
-
+from typing import Any, Dict, Generic, List, Optional, Tuple, TypeVar, Union, NamedTuple
+from collections import namedtuple
 import pytz
 import requests
 from pytz.tzinfo import BaseTzInfo
@@ -1128,15 +1128,17 @@ class ArrayValueMapper(ValueMapper[List[Optional[Any]]]):
         return [self.mapper.map(value) for value in values]
 
 
-class RowValueMapper(ValueMapper[Tuple[Optional[Any], ...]]):
-    def __init__(self, mappers: List[ValueMapper[Any]]):
+class RowValueMapper(ValueMapper["RowTuple"]):
+    def __init__(self, keys: List[str], mappers: List[ValueMapper[Any]]):
+        self.keys = keys
         self.mappers = mappers
 
-    def map(self, values: List[Any]) -> Optional[Tuple[Optional[Any], ...]]:
+    def map(self, values: List[Any]) -> Optional["RowTuple"]:
         if values is None:
             return None
-        return tuple(self.mappers[index].map(value) for index, value in enumerate(values))
-
+        RowTuple = namedtuple("Row", self.keys)
+        mapped_values = [self.mappers[index].map(value) for index, value in enumerate(values)]
+        return RowTuple(*mapped_values)
 
 class MapValueMapper(ValueMapper[Dict[Any, Optional[Any]]]):
     def __init__(self, key_mapper: ValueMapper[Any], value_mapper: ValueMapper[Any]):
@@ -1183,8 +1185,9 @@ class RowMapperFactory:
             value_mapper = self._create_value_mapper(column['arguments'][0]['value'])
             return ArrayValueMapper(value_mapper)
         elif col_type == 'row':
+            keys = [arg['value']['fieldName']['name'] for arg in column['arguments']]
             mappers = [self._create_value_mapper(arg['value']['typeSignature']) for arg in column['arguments']]
-            return RowValueMapper(mappers)
+            return RowValueMapper(keys,mappers)
         elif col_type == 'map':
             key_mapper = self._create_value_mapper(column['arguments'][0]['value'])
             value_mapper = self._create_value_mapper(column['arguments'][1]['value'])
